@@ -1,0 +1,212 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: perf-governance
+  labels:
+    acm-perf-repro: "true"
+---
+apiVersion: cluster.open-cluster-management.io/v1beta2
+kind: ManagedClusterSet
+metadata:
+  name: perf-fleet
+  labels:
+    acm-perf-repro: "true"
+spec: {}
+---
+apiVersion: cluster.open-cluster-management.io/v1beta2
+kind: ManagedClusterSetBinding
+metadata:
+  name: perf-fleet
+  namespace: perf-governance
+  labels:
+    acm-perf-repro: "true"
+spec:
+  clusterSet: perf-fleet
+---
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata:
+  name: perf-fleet-placement
+  namespace: perf-governance
+  labels:
+    acm-perf-repro: "true"
+spec:
+  clusterSets:
+    - perf-fleet
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: perf-policy1-binding
+  namespace: perf-governance
+  labels:
+    acm-perf-repro: "true"
+placementRef:
+  name: perf-fleet-placement
+  kind: Placement
+  apiGroup: cluster.open-cluster-management.io
+subjects:
+  - name: perf-policy1
+    kind: Policy
+    apiGroup: policy.open-cluster-management.io
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: perf-policy1
+  namespace: perf-governance
+  labels:
+    acm-perf-repro: "true"
+  annotations:
+    policy.open-cluster-management.io/standards: NIST SP 800-53
+    policy.open-cluster-management.io/categories: CM Configuration Management
+    policy.open-cluster-management.io/controls: CM-4 Baseline Configuration
+spec:
+  disabled: false
+  remediationAction: inform
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: perf-policy1-namespace
+        spec:
+          remediationAction: inform
+          severity: low
+          namespaceSelector:
+            exclude:
+              - kube-*
+            include:
+              - default
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: perf-test
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: perf-policy2-binding
+  namespace: perf-governance
+  labels:
+    acm-perf-repro: "true"
+placementRef:
+  name: perf-fleet-placement
+  kind: Placement
+  apiGroup: cluster.open-cluster-management.io
+subjects:
+  - name: perf-policy2
+    kind: Policy
+    apiGroup: policy.open-cluster-management.io
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: perf-policy2
+  namespace: perf-governance
+  labels:
+    acm-perf-repro: "true"
+  annotations:
+    policy.open-cluster-management.io/standards: NIST SP 800-53
+    policy.open-cluster-management.io/categories: CM Configuration Management
+    policy.open-cluster-management.io/controls: CM-6 Configuration Settings
+spec:
+  disabled: false
+  remediationAction: inform
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: perf-policy2-limitrange
+        spec:
+          remediationAction: inform
+          severity: medium
+          namespaceSelector:
+            include:
+              - default
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: LimitRange
+                metadata:
+                  name: perf-mock
+                  namespace: default
+                spec:
+                  limits:
+                    - type: Container
+                      max:
+                        cpu: "1"
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: perf-policy3-binding
+  namespace: perf-governance
+  labels:
+    acm-perf-repro: "true"
+placementRef:
+  name: perf-fleet-placement
+  kind: Placement
+  apiGroup: cluster.open-cluster-management.io
+subjects:
+  - name: perf-policy3
+    kind: Policy
+    apiGroup: policy.open-cluster-management.io
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: perf-policy3
+  namespace: perf-governance
+  labels:
+    acm-perf-repro: "true"
+  annotations:
+    policy.open-cluster-management.io/standards: NIST SP 800-53
+    policy.open-cluster-management.io/categories: SC System and Communications Protection
+    policy.open-cluster-management.io/controls: SC-8 Transmission Confidentiality and Integrity
+spec:
+  disabled: false
+  remediationAction: inform
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: perf-policy3-networkpolicy
+        spec:
+          remediationAction: inform
+          severity: high
+          namespaceSelector:
+            include:
+              - default
+          object-templates:
+            - complianceType: mustonlyhave
+              objectDefinition:
+                apiVersion: networking.k8s.io/v1
+                kind: NetworkPolicy
+                metadata:
+                  name: perf-default-deny
+                  namespace: default
+                spec:
+                  podSelector: {}
+                  policyTypes:
+                    - Ingress
+---
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: PolicySet
+metadata:
+  name: perf-policyset
+  namespace: perf-governance
+  labels:
+    acm-perf-repro: "true"
+spec:
+  description: Mock governance bundle for performance testing
+  policies:
+    - perf-policy1
+    - perf-policy2
+    - perf-policy3

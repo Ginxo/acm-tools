@@ -1,0 +1,7 @@
+.env
+*.log
+generated/*
+!generated/.gitkeep
+__pycache__/
+*.pyc
+*.bin
