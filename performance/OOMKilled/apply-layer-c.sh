@@ -3,10 +3,10 @@ set -euo pipefail
 source "$(dirname "$0")/env.sh"
 
 FAKE_PULL='eyJhdXRocyI6e319'
-ENV_LABEL_KEY="acm39327-repro-env"
+ENV_LABEL_KEY="oom-repro-env"
 
 for i in $(seq -w 1 "$CLUSTERS"); do
-  NAME="acm39327-mc-${i}"
+  NAME="mock-mc-${i}"
   ENV_LABEL_VAL="${NAME}"
 
   oc apply -f - <<EOF
@@ -81,7 +81,7 @@ metadata:
     vendor: OpenShift
     hive.openshift.io/cluster-platform: agent-baremetal
 spec:
-  baseDomain: acm39327.example.com
+  baseDomain: oom.example.com
   clusterName: ${name}
   installed: true
   preserveOnDelete: true

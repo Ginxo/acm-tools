@@ -1,8 +1,8 @@
 import { chromium } from 'playwright'
 
 const consoleUrl = process.env.CONSOLE_URL?.replace(/\/$/, '')
-const password = process.env.ACM_NONE_PASS || 'Acm39327!'
-const idpName = process.env.ACM_IDP_NAME || 'acm39327-htpasswd'
+const password = process.env.ACM_NONE_PASS || 'OomLab1!'
+const idpName = process.env.ACM_IDP_NAME || 'oom-htpasswd'
 const users = (process.env.ACM_NONE_USERS || '01')
   .trim()
   .split(/\s+/)

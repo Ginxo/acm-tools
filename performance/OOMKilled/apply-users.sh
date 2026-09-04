@@ -11,7 +11,7 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
 
-Create/update ACM-39327 repro HTPasswd IDP (${ACM_IDP_NAME}) with ${ACM_NONE_USERS_COUNT}
+Create/update HTPasswd IDP (${ACM_IDP_NAME}) with ${ACM_NONE_USERS_COUNT}
 none users (acm-none-01..${ACM_NONE_USERS_COUNT} / ${ACM_NONE_PASS}).
 
 Options:

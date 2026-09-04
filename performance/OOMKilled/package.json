@@ -1,5 +1,5 @@
 {
-  "name": "acm-39327-repro",
+  "name": "acm-oom-playwright",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",

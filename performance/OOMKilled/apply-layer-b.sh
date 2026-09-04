@@ -18,7 +18,7 @@ spec:
 EOF
 
 for i in $(seq -w 1 "$CLUSTERS"); do
-  NAME="acm39327-mc-${i}"
+  NAME="mock-mc-${i}"
 
   for secret in "${NAME}-install-config" "${NAME}-ssh-key" "${NAME}-bmc-creds" "${NAME}-admin-kubeconfig" "${NAME}-admin-password"; do
     oc apply -f - <<EOF

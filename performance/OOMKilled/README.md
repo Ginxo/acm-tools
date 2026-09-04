@@ -1,17 +1,16 @@
-# ACM Console OOM reproduction (ACM-39327)
+# ACM console OOM stress test (host inventory)
 
-Scripts to populate an ACM/MCE hub with labeled mock resources at maximum practical density and stress the **console backend** until it is **OOMKilled**. The scenario targets a known failure mode where non-admin users trigger excessive SubjectAccessReview (SSAR) work on the `/events` SSE stream when opening **Host inventory** (`/multicloud/infrastructure/environments`).
+Scripts to populate an ACM/MCE hub with labeled mock resources at high density and stress the **console backend** until it is **OOMKilled**. The scenario exercises a failure mode where non-admin users trigger excessive SubjectAccessReview (SSAR) work on the `/events` SSE stream when opening **Host inventory** (`/multicloud/infrastructure/environments`).
 
-**Use only on disposable lab clusters.** All created resources are labeled `acm39327-repro=true` and can be removed with `cleanup.sh`.
+**Use only on disposable lab clusters.** All created resources are labeled `acm-oom-repro=true` and can be removed with `cleanup.sh`.
 
 ## Background
 
 | Factor | Detail |
 |--------|--------|
-| **Ticket** | [ACM-39327](https://issues.redhat.com/browse/ACM-39327) |
-| **Trigger** | `none`-role users denied cluster-scoped `list`; unfixed event filtering falls back to namespaced `list` plus per-object `get` SSARs — **O(N)** against the SSE watch cache |
+| **Trigger** | `none`-role users denied cluster-scoped `list`; event filtering may fall back to namespaced `list` plus per-object `get` SSARs — **O(N)** against the SSE watch cache |
 | **UI surface** | Host inventory (CIM / InfraEnv agents) |
-| **Mitigation** | Event-body compression and related console fixes (e.g. [stolostron/console#6648](https://github.com/stolostron/console/pull/6648)) |
+| **Mitigation** | Event-body compression and related console backend improvements |
 
 ## Lab shape (defaults)
 
@@ -21,7 +20,7 @@ Scripts to populate an ACM/MCE hub with labeled mock resources at maximum practi
 | Agents per InfraEnv | **10** (`HOSTS_PER_CLUSTER`) → **250 Agents** |
 | Concurrent `none` users | **20** |
 | Console memory ceiling | **3 GiB** on `console-mce-console` (set manually before measurement) |
-| Label | `acm39327-repro=true` |
+| Label | `acm-oom-repro=true` |
 
 At full density the hub holds roughly **~1,329** labeled objects across four layers (see [Resource layers](#resource-layers)).
 
@@ -74,12 +73,14 @@ Edit `env.sh` or override exports before sourcing:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `WORKDIR` | This directory | Runtime files (`users.htpasswd`, `controller-replicas.txt`) |
-| `LABEL` | `acm39327-repro` | Label key used for all repro resources |
-| `CLUSTERS` | `25` | Number of mock managed clusters |
+| `LABEL` | `acm-oom-repro` | Label key used for all mock resources |
+| `CLUSTERS` | `25` | Number of mock managed clusters (`mock-mc-01` …) |
 | `HOSTS_PER_CLUSTER` | `10` | Agents (and related CIM objects) per cluster |
 | `MCE_NS` | `multicluster-engine` | Namespace of `console-mce-console` |
-| `ACM_IDP_NAME` | `acm39327-htpasswd` | OAuth identity provider name |
-| `ACM_NONE_PASS` | `Acm39327!` | Shared password for `acm-none-01`…`20` (**lab only**) |
+| `IMG` | `oom-img-stub` | Hive ClusterImageSet name |
+| `ACM_IDP_NAME` | `oom-htpasswd` | OAuth identity provider name |
+| `ACM_HTPASSWD_SECRET` | `oom-htpasswd-secret` | Secret in `openshift-config` |
+| `ACM_NONE_PASS` | `OomLab1!` | Shared password for `acm-none-01`…`20` (**lab only**) |
 | `ACM_NONE_USERS_COUNT` | `20` | Number of htpasswd users to create |
 
 `users.htpasswd` and `controller-replicas.txt` are generated locally and listed in `.gitignore`.
@@ -123,7 +124,7 @@ GATE: PASS
 
 ## Measurement notes
 
-1. **Before vs after fix** — Run the same density with a console image **without** event compression, capture RSS/OOM, then repeat with a fixed build.
+1. **Before vs after fix** — Run the same density with a console image **without** event compression, capture RSS/OOM, then repeat with an improved build.
 2. **Memory limit** — OOM is per-pod; with 2 `console-mce-console` replicas load may split. Scale to 1 replica for a controlled run if needed.
 3. **Controllers** — Keep controllers paused during apply/measurement; `cleanup.sh` restores them.
 4. **Secrets in layers B/C** — All Hive/CIM credentials are **stub** data (`e30=` / empty docker config). No real pull secrets or kubeconfigs are committed.
@@ -133,7 +134,7 @@ GATE: PASS
 ```bash
 npm ci
 export CONSOLE_URL="https://..."
-export ACM_NONE_PASS='Acm39327!'          # or your override
+export ACM_NONE_PASS='OomLab1!'           # or your override
 export ACM_NONE_USERS="01 02 03 ... 20"   # space-separated suffixes or full usernames
 node host-inventory.mjs
 ```
@@ -146,9 +147,9 @@ Sessions stay open until Ctrl+C so you can observe memory while pages remain on 
 ./cleanup.sh
 ```
 
-Deletes all resources labeled `acm39327-repro=true`, restores controller replica counts, and optionally clears the 3 GiB memory limit on `console-mce-console`.
+Deletes all resources labeled `acm-oom-repro=true`, restores controller replica counts, and optionally clears the 3 GiB memory limit on `console-mce-console`.
 
-To remove the HTPasswd IDP manually, edit the cluster OAuth configuration and delete the `acm39327-htpasswd` identity provider.
+To remove the HTPasswd IDP manually, edit the cluster OAuth configuration and delete the `oom-htpasswd` identity provider.
 
 ## License
 

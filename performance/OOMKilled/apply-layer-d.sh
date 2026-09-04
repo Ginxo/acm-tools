@@ -16,7 +16,7 @@ compliant_for() {
 }
 
 for i in $(seq -w 1 "$CLUSTERS"); do
-  NAME="acm39327-mc-${i}"
+  NAME="mock-mc-${i}"
   inx=$((10#$i))
 
   oc apply -f - <<EOF
@@ -28,12 +28,12 @@ metadata:
   labels:
     ${LABEL}: "true"
 results:
-  - policy: acm39327-policy-1
+  - policy: oom-policy-1
     rule: stub-rule
     result: fail
     severity: medium
     message: repro stub policy report
-  - policy: acm39327-policy-2
+  - policy: oom-policy-2
     rule: stub-rule-2
     result: pass
     severity: low
@@ -69,14 +69,14 @@ done
 for p in 1 2 3; do
   STATUS_JSON='['
   for i in $(seq -w 1 "$CLUSTERS"); do
-    NAME="acm39327-mc-${i}"
+    NAME="mock-mc-${i}"
     inx=$((10#$i))
     compliant=$(compliant_for "$p" "$inx")
     STATUS_JSON+="{\"clustername\":\"${NAME}\",\"clusternamespace\":\"${NAME}\",\"compliant\":\"${compliant}\"},"
   done
   STATUS_JSON="${STATUS_JSON%,}]"
 
-  oc patch policy "acm39327-policy-${p}" -n open-cluster-management-global-set --type merge --subresource=status -p "{\"status\":{\"status\":${STATUS_JSON},\"compliant\":\"NonCompliant\"}}" 2>/dev/null || true
+  oc patch policy "oom-policy-${p}" -n open-cluster-management-global-set --type merge --subresource=status -p "{\"status\":{\"status\":${STATUS_JSON},\"compliant\":\"NonCompliant\"}}" 2>/dev/null || true
 done
 
 echo "Layer D complete"

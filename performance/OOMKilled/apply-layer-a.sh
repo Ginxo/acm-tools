@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "$0")/env.sh"
 
 for i in $(seq -w 1 "$CLUSTERS"); do
-  NAME="acm39327-mc-${i}"
+  NAME="mock-mc-${i}"
   oc apply -f - <<EOF
 apiVersion: v1
 kind: Namespace
@@ -46,10 +46,10 @@ metadata:
     cloud: BareMetal
     name: ${NAME}
 spec:
-  masterEndpoint: https://api.${NAME}.acm39327.example.com:6443
+  masterEndpoint: https://api.${NAME}.oom.example.com:6443
 status:
   cloudVendor: BareMetal
-  consoleURL: https://console-openshift-console.apps.${NAME}.acm39327.example.com
+  consoleURL: https://console-openshift-console.apps.${NAME}.oom.example.com
   kubeVendor: OpenShift
   distributionInfo:
     type: OCP
@@ -103,7 +103,7 @@ for p in 1 2 3; do
 apiVersion: policy.open-cluster-management.io/v1
 kind: Policy
 metadata:
-  name: acm39327-policy-${p}
+  name: oom-policy-${p}
   namespace: open-cluster-management-global-set
   labels:
     ${LABEL}: "true"
