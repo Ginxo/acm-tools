@@ -1,0 +1,16 @@
+Mode: local dev backend (console repo npm run start:backend)
+Events URL: https://127.0.0.1:4000/events
+Prerequisites: oc login to hub, backend/.env from npm run setup, certs in backend/certs
+Measuring until LOADED or 600s ...
+=== ACM console SSE measurement ===
+URL:                 https://127.0.0.1:4000/events
+HTTP status:         200
+Content-Type:        text/event-stream
+Content-Encoding:    identity
+Elapsed:             29.57s
+LOADED seen:         True
+Decompressed size:   37158475 bytes (35.44 MiB)
+Wire size:            37158475 bytes (35.44 MiB)
+Event blocks (~):    13115
+Reference target:   300006221 bytes (286.11 MiB)
+vs reference HAR:     12.4% of reference decompressed payload

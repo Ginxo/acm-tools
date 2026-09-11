@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copyright Contributors to the Open Cluster Management project
-# Measure console SSE — direct port-forward (default) or OCP console plugin proxy.
+# Measure console SSE — direct (hub pod), local dev backend, or OCP console proxy.
 
 set -euo pipefail
 
@@ -15,6 +15,9 @@ MAX_SECONDS="${SSE_MAX_SECONDS:-600}"
 SAVE="${SSE_SAVE:-}"
 MODE="${SSE_MODE:-direct}"
 LOCAL_PORT="${SSE_LOCAL_PORT:-19443}"
+LOCAL_BACKEND_PORT="${LOCAL_BACKEND_PORT:-4000}"
+CONSOLE_PORT="${CONSOLE_PORT:-9000}"
+MCE_PORT="${MCE_PORT:-3002}"
 PF_PID=""
 
 cleanup() {
@@ -31,12 +34,31 @@ if [[ -n "${SAVE}" ]]; then
   args+=(--save "${SAVE}")
 fi
 
-if [[ "${MODE}" == "proxy" ]]; then
+if [[ "${MODE}" == "local" ]]; then
+  LOCAL_URL="${SSE_LOCAL_URL:-https://127.0.0.1:${LOCAL_BACKEND_PORT}/events}"
+  args+=(--url "${LOCAL_URL}")
+  echo "Mode: local dev backend only (direct /events — not the browser URL path)"
+  echo "Events URL: ${LOCAL_URL}"
+  echo "Prerequisites: oc login to hub, backend/.env from npm run setup, certs in backend/certs"
+elif [[ "${MODE}" == "plugins" ]]; then
+  resolve_plugins_events_url
+  args+=(--url "${CONSOLE_EVENTS_URL}")
+  echo "Mode: npm run plugins — local OpenShift Console plugin proxy (browser-like)"
+  echo "Events URL: ${CONSOLE_EVENTS_URL}"
+  echo "Prerequisites: npm run plugins running (backend + ocp-console on :${CONSOLE_PORT})"
+  echo "Auth: oc Bearer token by default; if HTTP 401 set SSE_COOKIE from browser DevTools"
+elif [[ "${MODE}" == "plugin-dev" ]]; then
+  PLUGIN_URL="${SSE_PLUGIN_URL:-https://127.0.0.1:${MCE_PORT}/multicloud/events}"
+  args+=(--url "${PLUGIN_URL}")
+  echo "Mode: MCE webpack dev server proxy (/multicloud/events → backend)"
+  echo "Events URL: ${PLUGIN_URL}"
+  echo "Prerequisites: npm run plugins (frontend on :${MCE_PORT}), oc login"
+elif [[ "${MODE}" == "proxy" ]]; then
   resolve_console_events_url
   args+=(--url "${CONSOLE_EVENTS_URL}")
-  echo "Mode: console plugin proxy"
+  echo "Mode: OpenShift Console plugin proxy (browser-like URL path)"
   echo "Events URL: ${CONSOLE_EVENTS_URL}"
-  echo "Note: proxy often requires a browser session cookie; use SSE_MODE=direct if you get HTTP 401/403."
+  echo "Note: uses oc Bearer token; browser uses session cookie — sizes should match, latency may differ."
 else
   resolve_console_deploy
   CONTAINER_PORT="$(resolve_console_container_port)"

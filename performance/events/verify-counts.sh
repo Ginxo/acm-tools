@@ -11,6 +11,8 @@ source "${SCRIPT_DIR}/lib.sh"
 load_env
 require_oc 2>/dev/null || true
 
+resolve_governance_ns 2>/dev/null || true
+
 if ! oc whoami >/dev/null 2>&1; then
   echo "not logged in"
   exit 1
@@ -18,9 +20,9 @@ fi
 
 count() {
   local kind="$1"
-  local extra="${2:-}"
-  # shellcheck disable=SC2086
-  oc get "${kind}" ${extra} --no-headers 2>/dev/null | wc -l | tr -d ' '
+  shift
+  # shellcheck disable=SC2068
+  oc get "${kind}" ${@} --no-headers 2>/dev/null | wc -l | tr -d ' '
 }
 
 count_mci_for_fleet() {
@@ -45,6 +47,7 @@ echo "ManagedCluster (prefix):  $(fleet_mc_count)"
 echo "ManagedClusterInfo:       $(count_mci_for_fleet)"
 echo "ManagedClusterAddOn:      $(count managedclusteraddon -A -l "${REPRO_LABEL}")"
 echo "Policy (governance ns): $(count policy.policy.open-cluster-management.io -n "${GOVERNANCE_NS}" -l "${REPRO_LABEL}")"
+echo "Policy (ns total):      $(count policy.policy.open-cluster-management.io -n "${GOVERNANCE_NS}")"
 echo
 echo "=== Layer B (Hive) ==="
 echo "ClusterDeployment:        $(count clusterdeployments.hive.openshift.io -A -l "${REPRO_LABEL}")"
@@ -54,7 +57,8 @@ echo "Secrets (repro label):    $(count secret -A -l "${REPRO_LABEL}")"
 echo
 echo "=== Layer D (governance) ==="
 echo "PolicyReport:             $(count policyreport -A -l "${REPRO_LABEL}")"
-echo "CSR (repro label):        $(count csr -l "${REPRO_LABEL}" 2>/dev/null || echo 0)"
+echo "CSR (repro label):        $(count certificatesigningrequest.certificates.k8s.io -l "${REPRO_LABEL}")"
+echo "CSR (mock-sno-*-csr):     $(oc get certificatesigningrequest.certificates.k8s.io -o name 2>/dev/null | grep -cE '/mock-sno-[0-9]+-csr$' || echo 0)"
 echo
 echo "=== Hub totals ==="
 echo "ManagedCluster (all):     $(count managedcluster)"

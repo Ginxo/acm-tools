@@ -25,10 +25,17 @@ PENDING: list[set[int]] = [
 ]
 
 VALID_COMPLIANT = frozenset({"Compliant", "Pending", "NonCompliant"})
+DEFAULT_POLICY_NAMES = ["perf-policy1", "perf-policy2", "perf-policy3"]
+DEFAULT_GOVERNANCE_NS = "perf-governance"
+FALLBACK_GOVERNANCE_NS = ("acm-43194-governance", "perf-governance")
 
-POLICY_NAMES = ["perf-policy1", "perf-policy2", "perf-policy3"]
-GOVERNANCE_NS = os.environ.get("GOVERNANCE_NS", "perf-governance")
-REPRO_LABEL = os.environ.get("REPRO_LABEL", "acm-perf-repro=true")
+
+def parse_repro_label() -> tuple[str, str]:
+    label = os.environ.get("REPRO_LABEL", "acm-perf-repro=true")
+    if "=" in label:
+        key, value = label.split("=", 1)
+        return key, value
+    return label, "true"
 
 
 def run_oc(args: list[str]) -> str:
@@ -38,10 +45,98 @@ def run_oc(args: list[str]) -> str:
     return result.stdout
 
 
+def namespace_exists(name: str) -> bool:
+    try:
+        run_oc(["get", "ns", name])
+        return True
+    except RuntimeError:
+        return False
+
+
+def list_policy_names_in_ns(governance_ns: str, *, repro_only: bool) -> list[str]:
+    args = ["get", "policy.policy.open-cluster-management.io", "-n", governance_ns, "-o", "name"]
+    if repro_only:
+        key, value = parse_repro_label()
+        args[2:2] = ["-l", f"{key}={value}"]
+    try:
+        out = run_oc(args)
+    except RuntimeError:
+        return []
+    return sorted(line.split("/", 1)[-1] for line in out.splitlines() if line.strip())
+
+
+def resolve_governance_ns(explicit: str | None) -> str:
+    preferred = explicit or os.environ.get("GOVERNANCE_NS") or DEFAULT_GOVERNANCE_NS
+    if namespace_exists(preferred) and list_policy_names_in_ns(preferred, repro_only=False):
+        return preferred
+
+    key, value = parse_repro_label()
+    try:
+        out = run_oc(
+            [
+                "get",
+                "policy.policy.open-cluster-management.io",
+                "-A",
+                "-l",
+                f"{key}={value}",
+                "-o",
+                "jsonpath={range .items[*]}{.metadata.namespace}{\\n}{end}",
+            ]
+        )
+        namespaces = sorted({line.strip() for line in out.splitlines() if line.strip()})
+        if len(namespaces) == 1:
+            print(f"Auto-detected governance namespace: {namespaces[0]}", file=sys.stderr)
+            return namespaces[0]
+        if len(namespaces) > 1:
+            raise RuntimeError(
+                f"multiple governance namespaces with repro label: {namespaces}; set GOVERNANCE_NS"
+            )
+    except RuntimeError:
+        pass
+
+    for fallback in FALLBACK_GOVERNANCE_NS:
+        if namespace_exists(fallback) and list_policy_names_in_ns(fallback, repro_only=False):
+            print(f"Auto-detected governance namespace: {fallback}", file=sys.stderr)
+            return fallback
+
+    raise RuntimeError(
+        f"namespace {preferred!r} not found and no Policy CRs on cluster.\n"
+        "Run: ./apply-governance.sh"
+    )
+
+
+def resolve_policy_names(governance_ns: str, explicit: str | None) -> list[str]:
+    if explicit:
+        names = [part.strip() for part in explicit.split(",") if part.strip()]
+        if names:
+            return names
+
+    env_names = os.environ.get("POLICY_NAMES", "")
+    if env_names:
+        names = [part.strip() for part in env_names.split(",") if part.strip()]
+        if names:
+            return names
+
+    names = list_policy_names_in_ns(governance_ns, repro_only=True)
+    if names:
+        return names
+
+    names = list_policy_names_in_ns(governance_ns, repro_only=False)
+    if names:
+        print(
+            f"Using {len(names)} policies in {governance_ns} (no repro label on Policy CRs)",
+            file=sys.stderr,
+        )
+        return names
+
+    return DEFAULT_POLICY_NAMES.copy()
+
+
 def list_repro_clusters(prefix: str, width: int, start: int, end: int) -> list[tuple[int, str]]:
+    key, value = parse_repro_label()
     names: list[str] = []
     try:
-        out = run_oc(["get", "managedcluster", "-l", REPRO_LABEL, "-o", "name"])
+        out = run_oc(["get", "managedcluster", "-l", f"{key}={value}", "-o", "name"])
         names = [line.split("/", 1)[-1] for line in out.splitlines() if line.strip()]
     except RuntimeError:
         names = []
@@ -65,10 +160,11 @@ def list_repro_clusters(prefix: str, width: int, start: int, end: int) -> list[t
 
 
 def compliance_for(policy_idx: int, cluster_index: int) -> str:
+    preset_idx = min(policy_idx, len(NONCOMPLIANT) - 1)
     zero_based = cluster_index - 1
-    if zero_based in NONCOMPLIANT[policy_idx]:
+    if zero_based in NONCOMPLIANT[preset_idx]:
         return "NonCompliant"
-    if zero_based in PENDING[policy_idx]:
+    if zero_based in PENDING[preset_idx]:
         return "Pending"
     return "Compliant"
 
@@ -86,7 +182,12 @@ def build_status_entries(clusters: list[tuple[int, str]], policy_idx: int) -> li
     return entries
 
 
-def patch_policy(policy_name: str, entries: list[dict[str, str]], dry_run: bool) -> None:
+def patch_policy(
+    policy_name: str,
+    governance_ns: str,
+    entries: list[dict[str, str]],
+    dry_run: bool,
+) -> None:
     for entry in entries:
         value = entry["compliant"]
         if value not in VALID_COMPLIANT:
@@ -98,7 +199,7 @@ def patch_policy(policy_name: str, entries: list[dict[str, str]], dry_run: bool)
         "policy",
         policy_name,
         "-n",
-        GOVERNANCE_NS,
+        governance_ns,
         "--subresource=status",
         "--type=merge",
         "-p",
@@ -108,19 +209,31 @@ def patch_policy(policy_name: str, entries: list[dict[str, str]], dry_run: bool)
         print("oc", " ".join(cmd[:6]), "-p", f"<{len(entries)} entries>")
         return
     run_oc(cmd)
-    print(f"Patched {policy_name}: {len(entries)} cluster status entries")
+    print(f"Patched {policy_name} ({governance_ns}): {len(entries)} cluster status entries")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--start", type=int, default=1)
     parser.add_argument("--end", type=int, default=750)
-    parser.add_argument("--prefix", default="mock-sno")
-    parser.add_argument("--width", type=int, default=4)
+    parser.add_argument("--prefix", default=os.environ.get("CLUSTER_PREFIX", "mock-sno"))
+    parser.add_argument("--width", type=int, default=int(os.environ.get("CLUSTER_WIDTH", "4")))
+    parser.add_argument(
+        "--governance-ns",
+        default=os.environ.get("GOVERNANCE_NS", ""),
+        help="Namespace with Policy CRs (auto-detect if missing)",
+    )
+    parser.add_argument(
+        "--policy-names",
+        default=os.environ.get("POLICY_NAMES", ""),
+        help="Comma-separated policy names (auto-detect from governance ns if omitted)",
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
     try:
+        governance_ns = resolve_governance_ns(args.governance_ns or None)
+        policy_names = resolve_policy_names(governance_ns, args.policy_names or None)
         clusters = list_repro_clusters(args.prefix, args.width, args.start, args.end)
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -130,10 +243,19 @@ def main() -> int:
         print("No repro clusters found in range — apply fleet first.", file=sys.stderr)
         return 1
 
-    print(f"Patching policy status for {len(clusters)} clusters (index {args.start}-{args.end})")
-    for idx, policy_name in enumerate(POLICY_NAMES):
+    print(
+        f"Patching policy status for {len(clusters)} clusters "
+        f"(index {args.start}-{args.end}) in ns {governance_ns}"
+    )
+    print(f"Policies: {', '.join(policy_names)}")
+
+    for idx, policy_name in enumerate(policy_names):
         entries = build_status_entries(clusters, idx)
-        patch_policy(policy_name, entries, args.dry_run)
+        try:
+            patch_policy(policy_name, governance_ns, entries, args.dry_run)
+        except RuntimeError as exc:
+            print(f"error patching {policy_name}: {exc}", file=sys.stderr)
+            return 1
     return 0
 
 

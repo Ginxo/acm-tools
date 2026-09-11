@@ -237,6 +237,92 @@ fleet_namespace_exists() {
   oc get namespace "${name}" >/dev/null 2>&1
 }
 
+# Count namespaced CRs in mock fleet namespaces (works when repro label was stripped or differs).
+count_in_fleet_namespaces() {
+  local kind="$1"
+  local start="${2:-1}"
+  local end="${3:-750}"
+  local total=0
+  local ns n
+
+  while read -r ns; do
+    [[ -n "${ns}" ]] || continue
+    n="$(oc get "${kind}" -n "${ns}" --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+    total=$((total + n))
+  done < <(list_fleet_managedclusters "${start}" "${end}")
+
+  echo "${total}"
+}
+
+# Count cluster-scoped or -A listed resources whose namespace matches CLUSTER_PREFIX-*.
+count_fleet_namespace_column() {
+  local kind="$1"
+  local start="${2:-1}"
+  local end="${3:-750}"
+  local prefix="${CLUSTER_PREFIX}-"
+  local line ns suffix index count=0
+
+  while read -r line; do
+    [[ -n "${line}" ]] || continue
+    ns="${line%%[[:space:]]*}"
+    [[ "${ns}" == "${prefix}"* ]] || continue
+    suffix="${ns##*-}"
+    [[ "${suffix}" =~ ^[0-9]+$ ]] || continue
+    index=$((10#${suffix}))
+    if [[ "${index}" -ge "${start}" && "${index}" -le "${end}" ]]; then
+      count=$((count + 1))
+    fi
+  done < <(oc get "${kind}" -A --no-headers 2>/dev/null)
+
+  echo "${count}"
+}
+
+# Resolve governance namespace: GOVERNANCE_NS, perf-governance, or Policy CRs with repro label.
+resolve_governance_ns() {
+  if [[ -n "${GOVERNANCE_NS:-}" ]] && oc get ns "${GOVERNANCE_NS}" >/dev/null 2>&1; then
+    export GOVERNANCE_NS
+    return 0
+  fi
+
+  local -a ns_candidates=()
+  while IFS= read -r ns; do
+    [[ -n "${ns}" ]] && ns_candidates+=("${ns}")
+  done < <(
+    oc get policy.policy.open-cluster-management.io -A -l "${REPRO_LABEL}" \
+      -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null \
+      | sort -u
+  )
+
+  if [[ ${#ns_candidates[@]} -eq 1 ]]; then
+    GOVERNANCE_NS="${ns_candidates[0]}"
+    export GOVERNANCE_NS
+    echo "Using governance namespace: ${GOVERNANCE_NS} (auto-detected from Policy CRs)"
+    return 0
+  fi
+
+  if [[ ${#ns_candidates[@]} -gt 1 ]]; then
+    echo "error: multiple governance namespaces with ${REPRO_LABEL}:" >&2
+    printf '  %s\n' "${ns_candidates[@]}" >&2
+    echo "Set GOVERNANCE_NS in .env" >&2
+    return 1
+  fi
+
+  local fallback
+  for fallback in acm-43194-governance perf-governance; do
+    if oc get ns "${fallback}" >/dev/null 2>&1 \
+      && oc get policy.policy.open-cluster-management.io -n "${fallback}" --no-headers 2>/dev/null | grep -q .; then
+      GOVERNANCE_NS="${fallback}"
+      export GOVERNANCE_NS
+      echo "Using governance namespace: ${GOVERNANCE_NS} (found Policy CRs)"
+      return 0
+    fi
+  done
+
+  echo "error: governance namespace not found (expected ${GOVERNANCE_NS:-perf-governance})" >&2
+  echo "Run: ./apply-governance.sh" >&2
+  return 1
+}
+
 resolve_console_events_url() {
   local plugin="${CONSOLE_PLUGIN:-auto}"
   local base_url="${CONSOLE_URL:-}"
@@ -258,5 +344,16 @@ resolve_console_events_url() {
   fi
 
   CONSOLE_EVENTS_URL="${base_url}/api/proxy/plugin/${plugin}/console/multicloud/events"
+  export CONSOLE_EVENTS_URL CONSOLE_PLUGIN="${plugin}"
+}
+
+# npm run plugins — local OpenShift Console + plugin proxy (browser Network tab path).
+resolve_plugins_events_url() {
+  local plugin="${CONSOLE_PLUGIN:-mce}"
+  local console_port="${CONSOLE_PORT:-9000}"
+  local base="${DEV_CONSOLE_URL:-http://127.0.0.1:${console_port}}"
+
+  base="${base%/}"
+  CONSOLE_EVENTS_URL="${base}/api/proxy/plugin/${plugin}/console/multicloud/events"
   export CONSOLE_EVENTS_URL CONSOLE_PLUGIN="${plugin}"
 }

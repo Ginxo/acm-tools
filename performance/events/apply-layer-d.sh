@@ -142,9 +142,15 @@ while read -r name; do
 done < <(list_fleet_managedclusters "${START}" "${END}")
 
 if [[ "${SKIP_POLICY_STATUS}" != true && "${DRY_RUN}" != true ]]; then
-  echo "Patching policy status (${START}-${END}) ..."
-  python3 "${SCRIPT_DIR}/patch-policy-status.py" --start "${START}" --end "${END}" \
-    --prefix "${CLUSTER_PREFIX}" --width "${CLUSTER_WIDTH}"
+  if resolve_governance_ns; then
+    echo "Patching policy status (${START}-${END}) in ns ${GOVERNANCE_NS} ..."
+    GOVERNANCE_NS="${GOVERNANCE_NS}" REPRO_LABEL="${REPRO_LABEL}" \
+      python3 "${SCRIPT_DIR}/patch-policy-status.py" --start "${START}" --end "${END}" \
+      --prefix "${CLUSTER_PREFIX}" --width "${CLUSTER_WIDTH}" \
+      --governance-ns "${GOVERNANCE_NS}"
+  else
+    echo "warning: skipping policy status patch — governance not applied" >&2
+  fi
 fi
 
 echo "Layer D complete (${count} clusters processed)."

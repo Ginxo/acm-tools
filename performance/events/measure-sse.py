@@ -172,22 +172,30 @@ def _stream_sse_once(
     from urllib.parse import urlparse
 
     parsed = urlparse(url)
-    if parsed.scheme != "https":
-        raise RuntimeError("only https URLs supported")
+    if parsed.scheme not in ("https", "http"):
+        raise RuntimeError("only http and https URLs supported")
 
     host = parsed.hostname
-    port = parsed.port or 443
+    default_port = 443 if parsed.scheme == "https" else 80
+    port = parsed.port or default_port
     path = parsed.path or "/"
     if parsed.query:
         path = f"{path}?{parsed.query}"
 
-    ctx = ssl_context(insecure)
-    conn = http.client.HTTPSConnection(host, port, context=ctx, timeout=max_seconds + 30)
+    if parsed.scheme == "https":
+        ctx = ssl_context(insecure)
+        conn = http.client.HTTPSConnection(host, port, context=ctx, timeout=max_seconds + 30)
+    else:
+        conn = http.client.HTTPConnection(host, port, timeout=max_seconds + 30)
     headers = {
-        "Authorization": f"Bearer {token}",
         "Accept": "text/event-stream",
         "Cache-Control": "no-cache",
     }
+    cookie = os.environ.get("SSE_COOKIE", "").strip()
+    if cookie:
+        headers["Cookie"] = cookie
+    else:
+        headers["Authorization"] = f"Bearer {token}"
     if use_gzip:
         headers["Accept-Encoding"] = "gzip"
     conn.request("GET", path, headers=headers)
