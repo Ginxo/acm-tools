@@ -1,0 +1,169 @@
+# Copyright Contributors to the Open Cluster Management project
+#
+# POST /aggregate/{applications,statuses,appSetData} — Go when CONSOLE_INFORMER_CACHE is on (ACM-42600).
+# POST /proxy/search and Search graphql-ws — Go (ACM-42601).
+
+cases:
+  - id: aggregate-applications-page
+    group: aggregate
+    description: POST /aggregate/applications paginated list
+    method: POST
+    path: /aggregate/applications
+    auth: bearer
+    alsoMulticloud: true
+    contentType: application/json
+    timeoutSeconds: 60
+    body:
+      page: 1
+      perPage: 10
+      sortBy:
+        index: 0
+        direction: asc
+    expect:
+      status: [200]
+      contentTypeContains: json
+      jsonKeys:
+        - page
+        - items
+        - processedItemCount
+        - emptyResult
+        - isPreProcessed
+        - request
+
+  - id: aggregate-applications-filter-search
+    group: aggregate
+    description: POST /aggregate/applications with filter, search, and sort
+    method: POST
+    path: /aggregate/applications
+    auth: bearer
+    alsoMulticloud: true
+    contentType: application/json
+    timeoutSeconds: 60
+    body:
+      page: 1
+      perPage: 10
+      search: tes
+      filters:
+        type: [subscription]
+      sortBy:
+        index: 0
+        direction: desc
+    expect:
+      status: [200]
+      contentTypeContains: json
+
+  - id: aggregate-applications-per-page-all
+    group: aggregate
+    description: POST /aggregate/applications with perPage -1 (export path)
+    method: POST
+    path: /aggregate/applications
+    auth: bearer
+    alsoMulticloud: true
+    contentType: application/json
+    timeoutSeconds: 60
+    body:
+      page: 1
+      perPage: -1
+    expect:
+      status: [200]
+      contentTypeContains: json
+
+  - id: aggregate-statuses
+    group: aggregate
+    description: POST /aggregate/statuses filter counts (itemCount is a JSON string)
+    method: POST
+    path: /aggregate/statuses
+    auth: bearer
+    alsoMulticloud: true
+    contentType: application/json
+    timeoutSeconds: 60
+    body:
+      clusters: []
+    expect:
+      status: [200]
+      contentTypeContains: json
+      jsonKeys:
+        - itemCount
+        - filterCounts
+        - systemAppNSPrefixes
+        - loading
+
+  - id: aggregate-appset-data
+    group: aggregate
+    description: POST /aggregate/appSetData (200 when ApplicationSet exists; 400 otherwise)
+    method: POST
+    path: /aggregate/appSetData
+    auth: bearer
+    alsoMulticloud: true
+    contentType: application/json
+    timeoutSeconds: 60
+    soft: true
+    softStatuses: [400]
+    body:
+      apiVersion: argoproj.io/v1alpha1
+      kind: ApplicationSet
+      metadata:
+        name: acm-contract-appset
+        namespace: openshift-gitops
+    expect:
+      status: [200]
+      contentTypeContains: json
+      jsonKeys:
+        - appset
+        - clusterList
+        - appSetApps
+        - appStatusByNameMap
+        - isAppSetPullModel
+
+  - id: aggregate-appset-invalid-json
+    group: aggregate
+    description: POST /aggregate/appSetData with invalid JSON is 400
+    method: POST
+    path: /aggregate/appSetData
+    auth: bearer
+    alsoMulticloud: true
+    contentType: application/json
+    rawBody: "{"
+    expect:
+      status: [400]
+      contentTypeContains: json
+      jsonKeys: [error]
+
+  - id: aggregate-unknown
+    group: aggregate
+    description: POST /aggregate/not-a-type is 404 with empty body
+    method: POST
+    path: /aggregate/not-a-type
+    auth: bearer
+    alsoMulticloud: true
+    contentType: application/json
+    body: {}
+    expect:
+      status: [404]
+      bodyEmpty: true
+
+  - id: search-graphql
+    group: search
+    description: POST /proxy/search GraphQL search query (Go searchproxy)
+    method: POST
+    path: /proxy/search
+    auth: bearer
+    alsoMulticloud: true
+    contentType: application/json
+    timeoutSeconds: 20
+    soft: true
+    softStatuses: [401, 403, 404, 500, 502, 503, 504]
+    body:
+      operationName: searchResult
+      variables:
+        input:
+          - filters:
+              - property: kind
+                values: [Pod]
+              - property: name
+                values: [search-api*]
+            limit: 1
+      query: "query searchResult($input: [SearchInput]) {\n  searchResult: search(input: $input) {\n    items\n  }\n}"
+    expect:
+      status: [200, 201]
+      contentTypeContains: json
