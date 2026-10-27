@@ -126,6 +126,60 @@ Per-cluster extras (layers B + D):
 | PolicyReport | 1 |
 | CSR | 1 (optional) |
 
+### 6.1 Console-cache layer (non-cluster density)
+
+Layers A/B/D are cluster-centric. The console backend also watches Policies, apps,
+discovery, Hypershift, assisted installer, and Secrets/CSRs with **specific
+selectors**. Layer B Secrets use `credentials: "true"` and layer D CSRs set a
+non-empty `cluster-name` — neither matches `DefaultWatchSpecs`, so they do **not**
+inflate the informer cache.
+
+```bash
+# After fleet exists (uses ManagedCluster names for fat Policy.status lists):
+./apply-layer-console.sh --preset smoke    # small sample of every dense kind
+./apply-layer-console.sh --preset target   # production-like density
+./apply-layer-console.sh --preset full     # max density for ranking all movable kinds
+
+./gate-density.sh 1 750   # GATE_C reports console-cache counts (optional)
+```
+
+Creates `perf-console-cache` + labeled `acm-perf-layer=console-cache` resources for
+**every dense `DefaultWatchSpecs` kind**: Policies (+ fat status), PolicySet/Automation,
+OCM apps (Channel/Subscription/Application/HelmRelease/SubscriptionReport), Argo
+(Application/ApplicationSet/ArgoCD/GitOpsCluster), Hive extras (ClusterPool/Claim,
+AgentClusterInstall, ClusterCurator), discovery/hypershift, assisted
+(Agent/InfraEnv/BMH/NMStateConfig/AgentMachine), AnsibleJob/Workflow, SubmarinerConfig,
+MulticlusterRoleAssignment, vm-filter ClusterRoles, OLM Subscriptions, Users/Groups,
+Secrets/CSRs that match informer selectors, fat PolicyReports.
+
+**Not densified** (hub singletons / fixed selectors — not useful for ranking):
+Authentication, MultiClusterHub, MultiClusterEngine, Infrastructure, ClusterVersion,
+StorageClass, Search, fixed-name ConfigMaps/Services.
+
+Missing CRDs on the hub are skipped with warnings (apply continues).
+
+### 6.2 Informer memory report (by WatchSpec)
+
+Estimates how much each `DefaultWatchSpecs()` entry contributes to backend memory
+(JSON size after stripping `managedFields`, except Policy — same as Go transform).
+
+```bash
+./report-informer-memory.py
+# → generated/informer-memory.md
+# → generated/informer-memory.csv
+```
+
+Columns: count, bytes, max, p50, mode (`sse` / `polled` / `cache-only`), % of
+total, search count (if search-api route is reachable), and a migration hint
+(`candidate-fleet-search`, `keep-aggregate`, `keep-global`, …).
+
+Cross-check: sum of `sse` rows ≈ decompressed `./measure-sse.sh` size on the same
+hub. Pod `VmRSS` is recorded for calibration; Go heap is typically several times
+the JSON estimate.
+
+Keep `watch_specs.py` in sync with
+`console/backend/internal/informers/specs.go` (`EXPECTED_SPEC_COUNT = 69`).
+
 ### 7. Measure SSE
 
 The console backend exposes **`GET /events`** (the browser loads **`/multicloud/events`** via the OCP Console plugin proxy). All modes measure the same **decompressed** payload until a `LOADED` event.
@@ -351,8 +405,23 @@ In a separate terminal:
 
 ### 10. Cleanup
 
+Run from this directory (`performance/events`), not the console repo root:
+
 ```bash
-./cleanup.sh
+./cleanup.sh --force --wait
+```
+
+Mock ManagedClusters carry OCM import/cleanup finalizers that never complete
+(there is no real spoke). Plain `oc delete` / the old label-only cleanup leaves
+hundreds of `Terminating` namespaces. The script therefore:
+
+1. Matches fleet objects by **label and** `${CLUSTER_PREFIX}-*` name prefix
+2. Strips ManagedCluster + namespace finalizers (skip with `--soft`)
+3. Deletes namespaces so AddOns cascade (avoids multi-hour per-addon deletes)
+
+```bash
+./cleanup.sh --force --wait   # non-interactive + poll until gone
+./cleanup.sh --soft           # delete without stripping finalizers
 ```
 
 ## Per-cluster inventory (layer A)
@@ -388,14 +457,19 @@ python3 generate-mock-fleet.py --start 1 --end 10 > generated/sample.yaml
 | `apply-governance.sh` | Apply `governance/fleet-base.yaml` |
 | `apply-layer-b.sh` | Hive density stubs |
 | `apply-layer-d.sh` | PolicyReport, CSR, policy status pressure |
-| `gate-density.sh` | Count gate for layers A / B / D |
+| `watch_specs.py` | Mirror of console `DefaultWatchSpecs()` (69 entries) |
+| `generate-console-cache.py` | Emit console-cache layer YAML |
+| `apply-layer-console.sh` | Apply console-cache layer (Policies, apps, discovery, …) |
+| `patch-console-cache-status.py` | Patch status from generated console-cache manifest |
+| `report-informer-memory.py` | Per-WatchSpec memory estimate + migration hints |
+| `gate-density.sh` | Count gate for layers A / B / D / console-cache |
 | `measure-sse.sh` / `measure-sse.py` | Single SSE measurement until `LOADED` |
 | `benchmark-sse.sh` | Repeat runs + JSON for before/after perf comparison |
 | `compare-sse-benchmarks.py` | Print delta between two benchmark JSON files |
 | `patch-policy-status.py` | Bulk policy compliance status |
 | `observe-memory.sh` | Continuous pod memory watch |
 | `verify-counts.sh` | Human-readable resource totals |
-| `cleanup.sh` | Delete all `acm-perf-repro=true` resources |
+| `cleanup.sh` | Wipe mock fleet (label + prefix); strips finalizers; `--force --wait` |
 
 ## Security notes
 

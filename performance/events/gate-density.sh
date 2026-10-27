@@ -92,6 +92,14 @@ gate_progress "  PolicyReports: ${PR}"
 CSR="$(count_csrs)"
 SEC="$(count_labeled_or_fleet secret "Secret")"
 
+gate_progress "Counting console-cache layer ..."
+CC_POL="$(count policy.policy.open-cluster-management.io -A -l "${REPRO_LABEL},acm-perf-layer=console-cache")"
+CC_APP="$(count application.app.k8s.io -A -l "${REPRO_LABEL},acm-perf-layer=console-cache")"
+CC_DISC="$(count discoveredcluster -A -l "${REPRO_LABEL},acm-perf-layer=console-cache" 2>/dev/null || echo 0)"
+CC_CSR="$(count certificatesigningrequest.certificates.k8s.io -l "${REPRO_LABEL},acm-perf-layer=console-cache")"
+CC_SEC="$(count secret -A -l "${REPRO_LABEL},acm-perf-layer=console-cache")"
+gate_progress "  console-cache Policies=${CC_POL} Applications=${CC_APP} DiscoveredCluster=${CC_DISC} CSR=${CC_CSR} Secret=${CC_SEC}"
+
 pass=true
 [[ "${MC}" -ge "${END}" ]] || pass=false
 [[ "${MCA}" -ge $((END * 8)) ]] || pass=false
@@ -101,16 +109,26 @@ pass=true
 [[ "${CP}" -ge "${END}" ]] || pass=false
 [[ "${PR}" -ge "${END}" ]] || pass=false
 
+# console-cache is optional for classic A/B/D gate; report separately.
+cc_pass=true
+[[ "${CC_POL}" -ge 5 ]] || cc_pass=false
+
 echo "=== Density gate (indices ${START}-${END}) ==="
 echo "GATE_A: MC=${MC} (need ${END})  MCA=${MCA} (need $((END * 8)))  POL=${POL} (need 3)"
 echo "GATE_B: CD=${CD} (need ${END})  MP=${MP} (need $((END * 2)))  CP=${CP} (need ${END})  SEC=${SEC} (need ≥$((END * 5)))"
 echo "GATE_D: PR=${PR} (need ${END})  CSR=${CSR} (optional, need ≥${END} if created)"
+echo "GATE_C: console-cache Policies=${CC_POL} Apps=${CC_APP} Discovered=${CC_DISC} CSR=${CC_CSR} Secret=${CC_SEC} (optional ≥5 policies)"
 echo
 if [[ "${pass}" == true ]]; then
   echo "Gate PASSED (CSR optional). Run: SSE_MAX_SECONDS=600 ./measure-sse.sh"
 else
   echo "Gate INCOMPLETE — fix failing counts above, then ./measure-sse.sh"
   echo "Note: fleet counts use namespace prefix ${CLUSTER_PREFIX}-* when repro label is absent."
+fi
+if [[ "${cc_pass}" == true ]]; then
+  echo "Gate console-cache PRESENT. Run: ./report-informer-memory.py"
+else
+  echo "Gate console-cache absent/incomplete — optional: ./apply-layer-console.sh --preset smoke|target"
 fi
 echo
 echo "Governance namespace: ${GOVERNANCE_NS}"
